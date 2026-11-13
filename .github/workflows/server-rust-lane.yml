@@ -40,6 +40,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: server-rust-lane-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}

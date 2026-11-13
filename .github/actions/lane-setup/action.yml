@@ -37,8 +37,14 @@ runs:
         } >> "$GITHUB_ENV"
     - name: Pull the pinned images
       shell: bash
+      env:
+        GHCR_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
+        # Private GHCR packages linked to this repo need the job token (packages: read);
+        # public packages pull anonymously, so a failed login is only a warning.
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null 2>&1 \
+          || echo "::warning::GHCR login failed; pulling anonymously"
         if grep -v '^#' .github/ci/images.lock | grep -q PLACEHOLDER; then
           echo "::error::.github/ci/images.lock still holds PLACEHOLDER digests: run the ci-images workflow once and commit its summary"
           exit 1
