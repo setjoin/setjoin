@@ -47,11 +47,12 @@ jobs:
           label="org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
           lock="$RUNNER_TEMP/images.lock"
           : >"$lock"
-          # push LOCAL REPO: push LOCAL as $reg/REPO:<sha>; print "LOCAL=<pinned digest reference>"
+          # push LOCAL REPO: push LOCAL as $reg/REPO:<sha>; print "LOCAL=<registry digest reference>"
           push() {
             docker tag "$1" "$reg/$2:$GITHUB_SHA"
             docker push -q "$reg/$2:$GITHUB_SHA" >/dev/null
-            echo "$1=$(docker inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$reg/$2:$GITHUB_SHA" | grep -m1 "^$reg/$2@")"
+            # ask the registry: a re-tagged Hub image keeps its Hub digest locally, which GHCR never sees
+            echo "$1=$reg/$2@$(docker buildx imagetools inspect "$reg/$2:$GITHUB_SHA" --format '{{.Manifest.Digest}}')"
           }
           docker build -q --label "$label" -t setjoin-ci-linux-tc:local-amd64 -f .github/ci/linux-toolchain.Dockerfile .github/ci
           push setjoin-ci-linux-tc:local-amd64 setjoin-ci-linux-tc >>"$lock"
